@@ -74,7 +74,7 @@ diff_ck(n_data,n_data_ck,"check num data vs num gappy data in continuous");
 %the embedding dimension (m) sets the "frequency response" (gut feeling - periods much longer go into trends,
 %much shorter into oscillations/cycles)
 
-M=fix(n_data/2); %can only have as many RC as [fix(number data/2)] so m≤half number of data (and continuous length≥ndata)
+%M=fix(n_data/2); %can only have as many RC as [fix(number data/2)] so m≤half number of data (and continuous length≥ndata)
 %line above is (generally) max embedding dimension (max number RCs and shortest sections of time series)
 
 M=1278; %set embedding dimension to 3.5 years (rounded to integer),
@@ -198,11 +198,3 @@ figname=strcat("mult part cont recon: Ntime=", num2str(n_cont_time)," Ndata=",nu
 figno=newfig(figno,figname);
 plot_n(t,x,sum(RC(:,[1:2]),2),sum(RC(:,[3:4]),2),sum(RC(:,[5:6]),2),sum(RC(:,[7:maxeig]),2),{'data' '1-2' '3-4' '5-6' '7-end'})
 showfig(figname)
-
-
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-
