@@ -7,6 +7,12 @@ This folder includes all the papers that we used to understand, implement, and t
 # 2- UCLA code
 SSA and M-SSA tutorial with Matlab
 
+Links:
+
+https://www.mathworks.com/matlabcentral/fileexchange/58967-singular-spectrum-analysis-beginners-guide
+
+https://www.mathworks.com/matlabcentral/fileexchange/58968-multichannel-singular-spectrum-analysis-beginners-guide
+
 This Matlab tutorial demonstrates step by step the univariate as well as multivariate singular spectrum analysis. The steps are almost similar to those of a singular spectrum analysis.
 
 References
