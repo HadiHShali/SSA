@@ -8,7 +8,7 @@ The main and base paper is "Singular spectrum analysis for time series with miss
 GEOPHYSICAL RESEARCH LETTERS, VOL. 0, NO. 0, PAGES 0-0, M 0, 2001.
 
 # 2- UCLA code
-SSA and M-SSA tutorial with Matlab
+SSA and M-SSA tutorial in Matlab, very suitable for understanding the steps of Singular Spectrum Analysis. 
 
 Links:
 
