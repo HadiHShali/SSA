@@ -24,3 +24,5 @@ hold on
 plot(RC,'g')
 plot(RC_,'r--')
 legend('Original Timeseries', 'Scaled Reconstructed Signal', 'Unscaled Reconstructed Signal')
+xlabel('Time index')
+ylabel('Amplitude in mm')
