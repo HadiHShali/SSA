@@ -31,7 +31,7 @@ The original code consists of two functions, one for SSA with Nan and the other 
 
 In our modified version, we just made some modifications as well as a function that reads the output data from Hectorp pacakge. In details, we have removed the jumps and trend using the hectorp package and feed into the code (Schoellhamer modified version) to do the SSA. 
 
-![schoellnamer_modif](https://github.com/user-attachments/assets/27f49bd1-ce87-44bc-b22f-cc5dc14111d9)
+![Scholhamer test](https://github.com/user-attachments/assets/8ea3128a-e0b8-4285-909b-cb6fa0ae07b2)
 
 Reference(s):
 
