@@ -3,6 +3,9 @@ This is the repository for SSA which include different sections as follow:
 
 # 1- Papers
 This folder includes all the papers that we used to understand, implement, and test the SSA method for the data containing gaps.
+ 
+The main and base paper is "Singular spectrum analysis for time series with missing data" by David H. Schoellhamer, U.S. Geological Survey, Sacramento, California. 
+GEOPHYSICAL RESEARCH LETTERS, VOL. 0, NO. 0, PAGES 0-0, M 0, 2001.
 
 # 2- UCLA code
 SSA and M-SSA tutorial with Matlab
@@ -23,5 +26,8 @@ Find more research on Singular Spectrum Analysis and related topics at https://d
 
 
 # 3- Schoellhamer code
+The original Schoellhamer code as well as its modified version to use for our data are included in this section. 
+
+The original code consists of two functions, one for SSA with Nan and the other for reconstructed components. 
 
 # 4- Main SSA of CERI, UofM
