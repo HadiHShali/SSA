@@ -32,7 +32,7 @@ The original code consists of two functions, one for SSA with Nan and the other 
 
 In our modified version, we just made some modifications as well as a function that reads the output data from Hectorp pacakge. In details, we have removed the jumps and trend using the hectorp package and feed into the code (Schoellhamer modified version) to do the SSA. 
 
-References:
+Reference(s):
 
 [1] Schoellhamer, David H. "Singular spectrum analysis for time series with missing data." Geophysical research letters 28.16 (2001): 3187-3190.
 
