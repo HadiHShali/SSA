@@ -1,5 +1,5 @@
 # Singular Spectrum Analysis (SSA)
-This is the repository for SSA which include different sections as follow:
+This repository is dedicated to the spectrum analysis of time series data containing gaps. It includes various sections designed to facilitate understanding and application of the methods and tools provided
 
 # 1- Papers
 This folder includes all the papers that we used to understand, implement, and test the SSA method for the data containing gaps.
