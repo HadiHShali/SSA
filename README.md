@@ -1,5 +1,6 @@
 # Singular Spectrum Analysis (SSA)
 This repository is dedicated to the spectrum analysis of time series data containing gaps. It includes various sections designed to facilitate understanding and application of the methods and tools provided
+<img width="3600" height="3000" alt="GPS Station LCHS and River Gauge MS116" src="https://github.com/user-attachments/assets/443cc1bf-cbcf-4fe8-99dd-1004966ed809" />
 
 # 1- Papers
 This folder includes all the papers that we used to understand, implement, and test the SSA method for the data containing gaps.
