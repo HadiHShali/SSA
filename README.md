@@ -1,7 +1,7 @@
 # Singular Spectrum Analysis (SSA)
 This repository is dedicated to the spectrum analysis of time series data containing gaps. It includes various sections designed to facilitate understanding and application of the methods and tools provided
 <img width="3600" height="3000" alt="GPS Station LCHS and River Gauge MS116" src="https://github.com/user-attachments/assets/443cc1bf-cbcf-4fe8-99dd-1004966ed809" />
->>>>>>> 8b2202c891f4bc8312fc4db2a2a2d6f6a103b3ba
+
 
 > **A Python implementation of Singular Spectrum Analysis for decomposing GNSS time series into their underlying frequency components, with native support for missing data (gaps).**
 
