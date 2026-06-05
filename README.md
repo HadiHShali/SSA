@@ -61,8 +61,11 @@ SSA/
 ├── 3_Schoellhamer_Code/           # Adapted MATLAB implementation
 │   ├── original/                  #   - Schoellhamer's original code
 │   └── modified/                  #   - Our modifications for GNSS workflows
+├── 4_to_SSA/           # Adapted MATLAB implementation
+│   ├── original/                  #   - Schoellhamer's original code
+│   └── modified/                  #   - Our modifications for GNSS workflows
 │
-├── 4_Main_SSA_CERI/               # Main Python pipeline ⭐
+├── 5_SSA_CERI_UofM/               # Main Python pipeline ⭐
 │   ├── ssa_pipeline.py            #   - Core SSA implementation
 │   ├── example/                   #   - Worked example with sample data
 │   │   ├── example_input.csv
