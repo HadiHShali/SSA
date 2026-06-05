@@ -61,17 +61,16 @@ SSA/
 ├── 3_Schoellhamer_Code/           # Adapted MATLAB implementation
 │   ├── original/                  #   - Schoellhamer's original code
 │   └── modified/                  #   - Our modifications for GNSS workflows
-├── 4_to_SSA/           # Adapted MATLAB implementation
-│   ├── original/                  #   - Schoellhamer's original code
-│   └── modified/                  #   - Our modifications for GNSS workflows
 │
-├── 5_SSA_CERI_UofM/               # Main Python pipeline ⭐
+├── 4_SSA_CERI_UofM/               # Main Python pipeline ⭐
 │   ├── ssa_pipeline.py            #   - Core SSA implementation
-│   ├── example/                   #   - Worked example with sample data
-│   │   ├── example_input.csv
-│   │   ├── run_example.py
-│   │   └── example_output/
-│   └── README.md                  #   - Detailed usage guide
+│   ├── To_SSA/                    # Input folder to make the required timeseries or ...
+|   |  ├── Input_TimeSeries        #...put your own timeseries (make sure to adjust your own data as instructed) here. 
+│   ├── MatlabVersion/ 
+│   ├── SSA_Cyclics                # OutPut folder. 
+│   │  ├── OutPut_TimeSeries       # Estimated Cyclic signals
+|   |  ├── Figures                 # Corresponding Figures per station
+│   └── README.md                  # Detailed usage guide
 │
 └── README.md                      # This file
 ```
