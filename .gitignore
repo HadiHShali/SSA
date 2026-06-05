@@ -1,2 +1,205 @@
 # Ignore the toSSA folder
-toSSA/
+# =============================================================================
+# .gitignore for HadiHShali/SSA
+# Python + MATLAB | Geodesy / GNSS Time Series Analysis
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Distribution / packaging
+.Python
+build/
+dist/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+wheels/
+pip-wheel-metadata/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# pytest / coverage
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# mypy / type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+
+# -----------------------------------------------------------------------------
+# MATLAB
+# -----------------------------------------------------------------------------
+*.asv          # Auto-save files
+*.m~           # Backup files
+slprj/         # Simulink cache
+*.mex*         # Compiled MEX binaries (all platforms)
+*.mlapp        # App Designer (if not part of source)
+*.mlappinstall
+*.mlx~
+octave-workspace
+
+
+# -----------------------------------------------------------------------------
+# Data & Large Files (GNSS / Geodesy)
+# -----------------------------------------------------------------------------
+*.tenv3
+*.tenv
+*.mom
+*.pos
+*.rnx
+*.obs
+*.nav
+*.sp3
+*.clk
+*.snx
+*.nc          # NetCDF
+*.h5          # HDF5
+*.hdf5
+*.mat         # MATLAB binary data files
+*.bin
+*.dat
+*.csv
+*.txt         # Exclude bulk text data (re-include docs below)
+*.zip
+*.tar.gz
+*.gz
+*.7z
+
+# Re-include specific text files that belong in source control
+!README.md
+!LICENSE
+!requirements.txt
+!environment.yml
+!steps.txt
+!CITATION.cff
+!*.py
+!*.m
+
+
+# -----------------------------------------------------------------------------
+# Output & Results
+# -----------------------------------------------------------------------------
+output/
+outputs/
+results/
+figures/
+plots/
+logs/
+*.log
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.eps
+*.svg
+*.fig          # MATLAB figures
+
+
+# -----------------------------------------------------------------------------
+# Secrets & Credentials
+# -----------------------------------------------------------------------------
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+config/local_*
+
+
+# -----------------------------------------------------------------------------
+# OS & System Files
+# -----------------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+
+# -----------------------------------------------------------------------------
+# Editors & IDEs
+# -----------------------------------------------------------------------------
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm / JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Spyder
+.spyderproject.cfg
+.spyproject/
+
+# Vim / Emacs
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+
+# -----------------------------------------------------------------------------
+# Temporary & Misc
+# -----------------------------------------------------------------------------
+tmp/
+temp/
+scratch/
+*.tmp
+*.bak
+*.orig
+*.rej
