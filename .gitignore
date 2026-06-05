@@ -15,9 +15,6 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
-dist/
-eggs/
 .eggs/
 *.egg-info/
 *.egg
@@ -27,13 +24,6 @@ pip-wheel-metadata/
 # Virtual environments
 .env
 .venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Jupyter Notebooks
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
@@ -174,9 +164,6 @@ $RECYCLE.BIN/
 # Vim / Emacs
 *.swp
 *.swo
-*~
-\#*\#
-.\#*
 
 
 # -----------------------------------------------------------------------------
