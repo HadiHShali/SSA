@@ -152,6 +152,11 @@ figno=newfig(figno,figname);
 plot_n(t,x,full_recons_NaNs,{'input data','full reconstruction'})
 showfig(figname)
 
+figname=strcat("residual");
+figno=newfig(figno,figname);
+plot_n(t,x-full_recons_NaNs,{'residual'})
+showfig(figname)
+
 rc=sum(RCNaNs(:,[1:maxeig]),2);
 rc(NaNindx)=NaN;
 
