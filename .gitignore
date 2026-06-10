@@ -63,28 +63,6 @@ octave-workspace
 # -----------------------------------------------------------------------------
 # Data & Large Files (GNSS / Geodesy)
 # -----------------------------------------------------------------------------
-*.tenv3
-*.tenv
-*.mom
-*.pos
-*.rnx
-*.obs
-*.nav
-*.sp3
-*.clk
-*.snx
-*.nc          # NetCDF
-*.h5          # HDF5
-*.hdf5
-*.mat         # MATLAB binary data files
-*.bin
-*.dat
-*.csv
-*.txt         # Exclude bulk text data (re-include docs below)
-*.zip
-*.tar.gz
-*.gz
-*.7z
 
 # Re-include specific text files that belong in source control
 !README.md
@@ -96,14 +74,6 @@ octave-workspace
 !*.py
 !*.m
 
-
-# -----------------------------------------------------------------------------
-# Output & Results
-# -----------------------------------------------------------------------------
-
-
-# -----------------------------------------------------------------------------
-# Secrets & Credentials
 # -----------------------------------------------------------------------------
 .env
 .env.*
@@ -116,12 +86,6 @@ credentials/
 config/local_*
 
 
-# -----------------------------------------------------------------------------
-# OS & System Files
-# -----------------------------------------------------------------------------
-
-# macOS
-.DS_Store
 .AppleDouble
 .LSOverride
 ._*
@@ -137,7 +101,6 @@ $RECYCLE.BIN/
 *.lnk
 
 # Linux
-*~
 .fuse_hidden*
 .directory
 .Trash-*
