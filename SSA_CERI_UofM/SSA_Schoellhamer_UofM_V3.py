@@ -1,662 +1,528 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Feb 10 16:21:31 2025
+Singular Spectrum Analysis (SSA) for GNSS time series.
 
-@author: GeodesyLab
+Example
+-------
+    python SSA_Schoellhamer_UofM_V3.py --MaxEig 16 --plot-reconstruct --plot-EigValue --plot-lomb
+
+    python SSA_Schoellhamer_UofM_V3.py \\
+        --input  ToSSA_Input/input_TS/ \\
+        --output-ts  SSA_OutPut/output_TS/ \\
+        --output-fig SSA_OutPut/output_Figures/ \\
+        --embedding 910 --MaxEig 16 \\
+        --components "1-2,3-4,5-6" \\
+        --plot-all
 """
-# %matplotlib qt
 
-# %% Clear workspace and setup
-import shutil
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.linalg import toeplitz  # For Toeplitz matrix generation
+from scipy.linalg import toeplitz
+from astropy.timeseries import LombScargle
 import os
-import pandas as pd
 
-# SSA function
-# % SSA Base Function
+
+# =============================================================================
+# CLI
+# =============================================================================
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="SSA processing for GNSS time series",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    # I/O
+    p.add_argument("--input", default="ToSSA_Input/input_TS/",
+                   help="Directory containing .dat input files")
+    p.add_argument("--output-ts", dest="output_ts",
+                   default="SSA_OutPut/output_TS/",
+                   help="Directory for SSA cyclic time-series outputs (.mom)")
+    p.add_argument("--output-fig", dest="output_fig",
+                   default="SSA_OutPut/output_Figures/",
+                   help="Root figure directory (one sub-folder per station)")
+
+    # Processing
+    p.add_argument("--embedding", "-M", type=int, default=910, metavar="M",
+                   help="Embedding dimension (days); ~2.5 yr = 910")
+    p.add_argument("--MaxEig", type=int, default=16, metavar="N",
+                   help="Number of eigenvalues used in reconstruction")
+    p.add_argument("--components", default="1-2,3-4,5-6",
+                   help="RC groupings for multi-panel plot, e.g. '1-2,3-4,5-6'")
+    p.add_argument("--toeplitz", action="store_true",
+                   help="Use Toeplitz covariance instead of trajectory-matrix covariance")
+    p.add_argument("--stations", nargs="+", default=None, metavar="STA",
+                   help="Process only these station names (default: all in --input)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="List stations that would be processed, then exit")
+
+    # Lomb-Scargle
+    p.add_argument("--min-freq", dest="min_freq", type=float, default=0.3,
+                   help="Lomb-Scargle lower bound (cycles / year)")
+    p.add_argument("--max-freq", dest="max_freq", type=float, default=100.0,
+                   help="Lomb-Scargle upper bound (cycles / year)")
+
+    # Plot flags
+    p.add_argument("--plot-all", dest="plot_all", action="store_true",
+                   help="Enable every available plot")
+    p.add_argument("--plot-gappy", dest="plot_gappy", action="store_true",
+                   help="Gappy input time series (mean-removed, normalised)")
+    p.add_argument("--plot-toeplitz", dest="plot_toeplitz", action="store_true",
+                   help="Toeplitz diagonal values and lagged-correlation matrix")
+    p.add_argument("--plot-EigValue", dest="plot_eigvalue", action="store_true",
+                   help="Eigenvalue spectrum — all in blue, selected in red")
+    p.add_argument("--plot-reconstruct", dest="plot_reconstruct", action="store_true",
+                   help="Reconstructed signal (sum of RC 1–MaxEig) overlaid on data")
+    p.add_argument("--plot-individuals", dest="plot_individuals", action="store_true",
+                   help="One figure per RC component from 1 to MaxEig")
+    p.add_argument("--plot-residuals", dest="plot_residuals", action="store_true",
+                   help="Residuals (data − reconstruction)")
+    p.add_argument("--plot-lomb", dest="plot_lomb", action="store_true",
+                   help="Lomb-Scargle PSD of reconstruction and residuals")
+
+    return p.parse_args()
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+def resolve_plots(args):
+    """Propagate --plot-all to every individual flag."""
+    if args.plot_all:
+        for attr in ("plot_gappy", "plot_toeplitz", "plot_eigvalue",
+                     "plot_reconstruct", "plot_individuals",
+                     "plot_residuals", "plot_lomb"):
+            setattr(args, attr, True)
+    return args
+
+
+def parse_components(comp_str, maxeig):
+    """
+    '1-2,3-6,7-15' → [(0,2),(2,6),(6,15)]  (0-based start, exclusive end).
+    Each group's end is clipped to maxeig so you never index beyond what
+    was reconstructed, but the label shown in the plot reflects the numbers
+    the user typed, not the clipped values.
+
+    Returns list of (start, end, label) tuples.
+    """
+    groups = []
+    for part in comp_str.split(","):
+        a, b = part.strip().split("-")
+        a, b = int(a), int(b)
+        start = a - 1                   # 0-based
+        end   = min(b, maxeig)          # clip to available RCs
+        label = f"RC {a}–{end}"        # label reflects actual range used
+        if start >= maxeig:
+            continue                    # entirely out of range — skip silently
+        groups.append((start, end, label))
+    return groups
+
+
+def savefig(fig, path):
+    fig.savefig(path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def compute_psd_LS(raw_values, fmin_cpy=0.3, fmax_cpy=100.0):
+    """
+    Lomb-Scargle PSD for a daily time series with gaps (NaNs).
+    Unlike Welch, Lomb-Scargle operates on the valid (time, value) pairs
+    directly and handles non-uniform sampling / missing data natively.
+
+    Parameters
+    ----------
+    raw_values : 1-D array  (daily samples; NaNs for gaps)
+    fmin_cpy, fmax_cpy : frequency window in cycles per year
+
+    Returns
+    -------
+    freq_cpy : ndarray, frequencies in cycles per year
+    psd      : ndarray, Lomb-Scargle PSD (normalisation="psd")
+    """
+    x = np.asarray(raw_values, dtype=float)
+    mask = ~np.isnan(x)
+    t_days = np.arange(len(x), dtype=float)[mask]
+    vals = x[mask] - np.nanmean(x[mask])
+
+    fmin_cpd = fmin_cpy / 365.25
+    fmax_cpd = fmax_cpy / 365.25
+
+    ls = LombScargle(t_days, vals, normalization="psd")
+    freq_cpd, psd = ls.autopower(
+        minimum_frequency=fmin_cpd,
+        maximum_frequency=fmax_cpd,
+        samples_per_peak=5,
+    )
+    freq_cpy = freq_cpd * 365.25
+    return freq_cpy, psd
+
+
+# =============================================================================
+# SSA core
+# =============================================================================
 def SSABasicCleanUCLAtoeplitz(trajmat, toep=None, maxieg=None):
     """
-    Perform Singular Spectrum Analysis (SSA) to clean the trajectory matrix with or without Toeplitz covariance.
+    Perform Singular Spectrum Analysis (SSA) to clean the trajectory matrix
+    with or without Toeplitz covariance.
 
-    Parameters:
-    - trajmat: Trajectory matrix (embedding dimension wide, segments tall).
-    - toep: Optional Toeplitz matrix for covariance, if not provided, will use trajmat' * trajmat.
+    Parameters
+    ----------
+    trajmat : ndarray  (L x M)  trajectory matrix
+    toep    : optional Toeplitz covariance matrix
+    maxieg  : optional cap on number of eigenvectors used
 
-    Returns:
-    - OutStruc: Dictionary with reconstructed components (RC), eigenvalues (LAMBDA), eigenvectors (RHO), and number of NaNs.
+    Returns
+    -------
+    dict with keys RC, LAMBDA, RHO, num_nans
     """
-    print(f"Entering local SSABasicCleanUCLAtoeplitz, number of inputs: {len(locals())}")
+    print(f"Entering SSABasicCleanUCLAtoeplitz, inputs: {len(locals())}")
 
-    # Check the input dimensions and prepare the trajectory matrix
-    L, M = trajmat.shape  # L is the number of segments, M is the embedding dimension
+    L, M = trajmat.shape
+    originalvec = np.concatenate((trajmat[:, 0], trajmat[-1, 1:]))
+    num_nans = np.sum(np.isnan(originalvec))
+    N = L + M - 1
 
-    # Handle missing data (NaNs) in the trajectory matrix
-    originalvec = np.concatenate((trajmat[:, 0], trajmat[-1, 1:]))  # Concatenate first column and last row (excluding first element)
-    num_nans = np.sum(np.isnan(originalvec))  # Count the number of NaNs in the original vector
-    N = L + M - 1  # Total number of data points (L + M - 1)
-    num_data = N - num_nans  # Number of data points excluding NaNs
-    
     if num_nans != 0:
         print("NaNs detected in the input matrix.")
         trajmat_ele_good = np.copy(trajmat)
-        trajmat_ele_good[np.isnan(trajmat_ele_good)] = 0  # Replace NaNs with 0s
-        trajmat_ele_TF = np.ones_like(trajmat)  # Create a true/false mask for data points
+        trajmat_ele_good[np.isnan(trajmat_ele_good)] = 0
+        trajmat_ele_TF = np.ones_like(trajmat)
         trajmat_ele_TF[np.isnan(trajmat)] = 0
-        
-        # Percentage of good data
+
         pct_good = np.sum(trajmat_ele_TF) / trajmat.size
         print(f"Percentage of good data: {pct_good:.4f}")
-        
-        # Indices for non-NaN and NaN elements
-        indxelegood = np.where(~np.isnan(trajmat))  # Indices for non-NaN data
-        indxeleNaN = np.where(np.isnan(trajmat))  # Indices for NaN data
 
-        # Covariance matrix using good data (ignoring NaNs)
-        #%this creates the covariance matrix from the trajectory matrix, missing points have value 0 and don't contribute, have to "normalize" by number good points in each dot product
-        #in general - elements of C are not zero (need whole column/row=0 or perpendicular vectors (have to try with monster gaps)
-        C = (trajmat_ele_good.T) @ trajmat_ele_good
-        
-        #trajmat_ele_TF has true (1) for data, and false (0) for missiong data, this matrix product gives number good points in each dot product - for normalization
-        NaNadj = np.dot(trajmat_ele_TF.T, trajmat_ele_TF)  # gives the number of non-zero products in the dot product. 
+        C = trajmat_ele_good.T @ trajmat_ele_good
+        NaNadj = trajmat_ele_TF.T @ trajmat_ele_TF
+        C = C / NaNadj
 
-        C = C/NaNadj  # Normalize by number of good terms
-
-        # Check for problems in the covariance matrix (inf values)
         if np.any(np.isinf(C)):
-            print("Bad elements in covariance matrix (infinity or divide by zero)")
+            print("Bad elements in covariance matrix (inf / divide-by-zero)")
             return
-
     else:
         print("No NaNs detected, using normal covariance")
-        C = np.dot(trajmat.T, trajmat)  # Standard covariance calculation if no NaNs
-    
-    # If Toeplitz matrix is provided, use it instead of calculated covariance
+        trajmat_ele_good = trajmat
+        C = trajmat.T @ trajmat
+
     if toep is not None:
         C = toep
         print("Using Toeplitz matrix for covariance")
-    
-    # Calculate eigenvalues (LAMBDA) and eigenvectors (RHO)
+
     try:
-        LAMBDAM, RHO = np.linalg.eig(C)  # Eigen decomposition
+        LAMBDAM, RHO = np.linalg.eig(C)
     except np.linalg.LinAlgError:
         print("Eigenvalue/eigenvector calculation failed.")
         return
-    
-    # Handle negative eigenvalues due to numerical issues
-    LAMBDA = LAMBDAM
-    #LAMBDA = np.copy(LAMBDA)
-    LAMBDA[LAMBDA < 0] = 1e-16  # Set negative eigenvalues to a small positive number
-    
-    sorted_indices = np.argsort(LAMBDA)[::-1]  # Get indices for sorting in descending order
 
-    [LAMBDA, ind] =[ np.sort(LAMBDA)[::-1], np.argsort(LAMBDA)[::-1]]  # Sort eigenvalues in descending order
-    RHO = RHO[:, ind]  # Reorder eigenvectors according to sorted eigenvalues
+    LAMBDA = LAMBDAM.copy()
+    LAMBDA[LAMBDA < 0] = 1e-16
 
-    # Calculate principal components (PC)
-    #    % The principal components are given as the scalar product between Y, the
-    # time-delayed embedding of X, and the eigenvectors RHO taking into 
-    # account the missing data NaNs by replacing them with zeros and then
-    # adjusting the ave of the row column dot product by the number of good terms.
-    # if num_nans > 0:
-    #     print("NaNs detected in principal components, need to handle them.")
-    
+    ind = np.argsort(LAMBDA)[::-1]
+    LAMBDA = LAMBDA[ind]
+    RHO = RHO[:, ind]
 
     if maxieg is not None:
         maxieg = min(maxieg, len(LAMBDA))
-        LAMBDA_maxieg = LAMBDA[:maxieg]
-        RHO_maxieg = RHO[:, :maxieg]
-    
-        PC = np.dot(trajmat_ele_good, RHO_maxieg)
+        RHO_use = RHO[:, :maxieg]
+        PC = trajmat_ele_good @ RHO_use
         if np.any(np.isnan(PC)):
-            print("Missing PC terms - fix required, NaNs found in PC")
+            print("NaNs found in PC — fix required")
             return
-    
+        print("No NaNs in PCs, continuing with reconstruction.")
+        RC = np.zeros((N, maxieg))
+        for m in range(maxieg):
+            buf = np.outer(PC[:, m], RHO_use[:, m])
+            buf = np.flipud(buf)
+            for n in range(N):
+                RC[n, m] = np.mean(np.diagonal(buf, offset=-(N - M) + n))
+    else:
+        PC = trajmat_ele_good @ RHO
+        if np.any(np.isnan(PC)):
+            print("NaNs found in PC — fix required")
+            return
         print("No NaNs in PCs, continuing with reconstruction.")
         RC = np.zeros((N, M))
-        for m in range(min(M, maxieg)):
-            buf = np.outer(PC[:, m], RHO_maxieg[:, m].T)
+        for m in range(M):
+            buf = np.outer(PC[:, m], RHO[:, m])
             buf = np.flipud(buf)
             for n in range(N):
                 RC[n, m] = np.mean(np.diagonal(buf, offset=-(N - M) + n))
 
-    else:
-         
-        PC = np.dot(trajmat_ele_good, RHO)  # Principal components
-
-        # Check for NaNs in the principal components
-        if np.any(np.isnan(PC)):
-            print("Missing PC terms - fix required, NaNs found in PC")
-            return
-        
-        print("No NaNs in PCs, continuing with reconstruction.")
-
-        # Calculate reconstructed components (RC)
-        RC = np.zeros((N,M))
-        for m in range(1,M+1):
-            buf = np.outer(PC[:, m-1],RHO[:, m-1].T)  # Inverse projection
-            buf = np.flipud(buf)  # Flip vertically
-
-            for n in range(1,N+1):
-                # Anti-diagonal averaging to reconstruct original components
-                RC[n-1, m-1] = np.mean(np.diagonal(buf, offset=-(N - M ) + (n-1)))
-    
-    # Output structure containing results
-    OutStruc = {
-        'RC': RC,
-        'LAMBDA': LAMBDA,
-        'RHO': RHO,
-        'num_nans': num_nans
-    }
-
-    print("Leaving local SSABasicCleanUCLAtoeplitz")
-    return OutStruc
-
-# %% Main code ---------------------------------------------------------------
-# # Load data
-directory = os.getcwd()  # Current directory    
-input_dir ="To_SSA"  # Data directory
-
-#print(f"Detected subfolders: {folders}")
-file_names = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
-
-for fldrs in file_names:
-#fldrs = file_names[0]
-    #fldrs = "CJTR_N"
-    St_Names =fldrs[:10]
-    #St_Names = St_Names.upper()
-    Compnnt = fldrs[5]  # Component
-    if Compnnt == '0':
-        Comp = 'E'
-    elif Compnnt == '1':
-        Comp = 'N'
-    elif Compnnt == '2':
-        Comp = 'U'
-
-    print(f"{St_Names} is processing" )
-
-    filename = f"{St_Names}.dat"  # File match string
-    filename_dir = os.path.join(input_dir, filename)  # Full file path
-
-    comments = []
-    data_lines = []
-
-    with open(filename_dir, "r") as file:
-        for line in file:
-            if line.startswith("#"):
-                comments.append(line.strip())  # Store comments without leading/trailing spaces
-            else:
-                data_lines.append(line)
-
-    # Convert the numeric data to a NumPy array
-    full_data = np.loadtxt(data_lines)
-
-
-    n_data = full_data.shape[0]  # Number of data points
-    data = full_data
-
-    x_in = data[:, 3]  # Extract third column (mm) Observation - trend - jumps removed
-    obser = data [:, 2] # Extract second column (mm) raw observation
-    tyfrac = data[:, 1]  # Fractional year time
-    tmjd = data[:, 0]  # Modified Julian Date
-
-    dataindx = tmjd - tmjd[0] + 1  # Index of days with data
-
-    # Normalize data
-    x_std = np.std(x_in, ddof=1)
-    x_mean = np.mean(x_in)
-    x_in_mean_rem_norm_w_std = (x_in - x_mean) / x_std  # Mean removed and normalized
-
-    # Create continuous time vector
-    t = np.arange(tmjd[0], tmjd[-1] + 1) - tmjd[0] + 1
-    n_cont_time = len(t)
-
-    # Check for missing days
-    if n_cont_time == n_data:
-        print('No NaNs in input data')
-    else:
-        print(f'There are {n_cont_time - n_data} NaNs')
-
-
-
-    # %% Create a copy of input vector with NaNs for missing values
-    N = n_cont_time #number of continuous time steps
-
-    x_in_with_NaNs = np.full((N,), np.nan)  # Equivalent to nan(n_cont_time,1) in MATLAB
-    x_in_with_NaNs[dataindx.astype(int) - 1] = x_in  # Assign values at the correct indices
-
-    # Create another NaN-filled array for normalized data
-    x_in_mean_rem_norm_w_std_with_NaNs = np.full((N,), np.nan)
-    x_in_mean_rem_norm_w_std_with_NaNs[dataindx.astype(int) - 1] = x_in_mean_rem_norm_w_std
-
-    x = x_in_mean_rem_norm_w_std_with_NaNs  # This array has mean removed and normalized data
-
-    #  Replace NaNs with zeros
-    x_in_with_Zeros_mean_rem_norm_w_std = np.copy(x_in_mean_rem_norm_w_std_with_NaNs)
-    x_in_with_Zeros_mean_rem_norm_w_std[np.isnan(x_in_with_Zeros_mean_rem_norm_w_std)] = 0
-
-    X = x_in_with_Zeros_mean_rem_norm_w_std  # Final data with NaNs replaced by zeros
-
-
-    # %% Plot gappy input time series (mean removed, normalized, NaNs for missing data)
-    # Initialize figure number
-    figno = 0
-    #figname = f'{St_Names} Gappy input time series, Detrended, Jumps Removed'
-    tFracYr_with_NaNs = np.full((N,), np.nan)  # Equivalent to nan(n_cont_time,1) in MATLAB
-    tFracYr_with_NaNs[dataindx.astype(int) - 1] = tyfrac  # Assign values at the correct indices
-    #plt.figure(figsize=(12, 9), dpi=300)
-    #plt.plot(tFracYr_with_NaNs, x_in_with_NaNs, 'bo-', markersize=2, linewidth=0.3)  # 'bo-' -> blue circles with lines connecting
-    #plt.xlabel('Time (days)')
-    #plt.ylabel('Position')
-    #plt.title(figname)
-    Fig_output_dir = 'My_Figures'
-    os.makedirs(Fig_output_dir, exist_ok=True)
-    #fig_path = os.path.join(Fig_output_dir, f'1_{St_Names} Gappy input time series.png')
-    #plt.savefig(f'{St_Names}Gappy_input_time_series_mean_removed_normalized_NaNs.png')
-    #plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-    #plt.close()
-
-
-
-    # %% Find gaps (NaNs)
-    NaNindx = np.where(np.isnan(x))[0]  # Find indices of NaNs
-    num_nans = len(NaNindx)  # Get number of NaNs
-    frac_nans = num_nans / n_cont_time  # Fraction of NaNs
-
-    # Check number of valid data points vs. total expected points
-    n_data_ck = n_cont_time - num_nans
-
-    def diff_ck(a1, a2, vari):
-        """
-        Check the difference between two arrays/scalars and print the max absolute difference.
-        """
-        del_val = np.max(np.abs(np.array(a1).flatten() - np.array(a2).flatten()))
-        print(f"{vari}: {del_val}")
-
-    diff_ck(n_data, n_data_ck, "Check: num data vs num gappy data in continuous")
-
-    # %%  Embedding dimension
-    # M is the number of columns in the trajectory matrix (embedding dimension)
-    # Typically M is chosen as fix(n_data/2), but here it's manually set
-    M = 910  # 2.5 years rounded to integer
-    if len(tmjd) < 2 * M:
-        print("Time series is shorter than 2*M, skipping...")
-        continue
-    # Number of rows in the trajectory matrix
-    l = n_cont_time - M + 1  
-
-    # %% Construct trajectory matrix
-    colind = np.arange(1, M + 1)  # Column index vector (1:M in MATLAB)
-    rowind = np.arange(0, l)[:, None]  # Row index vector (column vector)
-
-    # Vectorized index matrix creation
-    trajmatind = colind + rowind  # Equivalent to colind + rowind' in MATLAB
-
-    # Initialize trajectory matrix with NaNs and fill values
-    trajmat = np.full((l, M), np.nan)
-    trajmat = x[trajmatind - 1]  # Adjust for Python's zero-based indexing
-
-    # %% Toeplitz diagonal values calculation
-    Cloop = np.zeros(M)  # Initialize Cloop array
-    cntZeros_array = np.zeros(M)  # Store zero counts per J
-
-    for J in range(M):
-        Nterms = N - J  # Number of terms for this J
-        cntZeros = 0  # Count zeros
-
-        sum_val = 0  # Accumulator for sum
-        for I in range(Nterms):
-            newProdTerm = X[I] * X[I + J]
-            if newProdTerm != 0:
-                sum_val += newProdTerm
-            else:
-                cntZeros += 1
-
-        ActualNterms = Nterms - cntZeros  # Adjust number of valid terms
-        Cloop[J] = sum_val / ActualNterms if ActualNterms > 0 else 0  # Avoid division by zero
-
-    # % Plot Toeplitz diagonal values
-    #figname = f"{St_Names} Toeplitz diagonal values"
-    #plt.figure(figsize=(12, 9), dpi=300)
-    #plt.plot(Cloop, 'b-')
-    #plt.xlabel('Lag')
-    #plt.ylabel('Correlation')
-    #plt.title(figname)
-    #fig_path = os.path.join(Fig_output_dir, f'2_{St_Names}Toeplitz diagonal values.png')
-    #plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-    #plt.close()
-
-
-    # % Construct Toeplitz matrix
-    Ctoep = toeplitz(Cloop)  # Generate Toeplitz matrix
-
-    # % Plot Toeplitz lagged correlation matrix
-    #figname = f"Toeplitz lagged correlation, gappy: Ntime={n_cont_time}, Ndata={n_data}, M={M}, L={l}"
-    #plt.figure(figsize=(12, 9), dpi=300)
-    #plt.imshow(Ctoep, aspect='auto', cmap='viridis')
-    #plt.colorbar(label="Correlation")
-    #plt.xlabel("Lag Index")
-    #plt.ylabel("Lag Index")
-    #plt.title(figname)
-    #fig_path = os.path.join(Fig_output_dir, f'3_{St_Names} Toeplitz lagged correlation.png')
-    #plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-    #plt.close()
-
-
-
-    # %% Maximum eigenvalue
-    maxeig=16
-
-    # %% running the SSA code 
-    OutStrucNaNs = SSABasicCleanUCLAtoeplitz(trajmat, toep=None, maxieg=maxeig)
-
-
-    # %% FULL Reconstructed components (RC) from NaN-handled data
-    RC = OutStrucNaNs['RC']
-
-    # Insert NaNs into the RC matrix
-    RCNaNs = RC.copy()
-    if maxeig is None:
-        RCNaNs[NaNindx, :] = np.nan  # Insert NaNs at specific indices
-
-    # The above replaces the zeros (placeholders for NaNs) with NaNs again
-        full_recons_NaNs = np.sum(RCNaNs, axis=1)  # Reconstruct full time series for NaN-handled data
-
-    # Unnormalize the full reconstruction to compare with input (also process for velocity)
-        x_in_recons_NaNs = full_recons_NaNs * x_std + x_mean
-
-        # Plot full reconstruction
-        figname = "gappy full reconstructions and data"
-        figno = figno + 1
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        plt.plot(tFracYr_with_NaNs, x_in_with_NaNs, label="input data")
-        plt.plot(tFracYr_with_NaNs, x_in_recons_NaNs, label="full reconstruction")
-        #plot_n(t, x, full_recons_NaNs, ['input data', 'full reconstruction'])
-        plt.legend()  # Add legend to distinguish the lines
-        plt.xlabel("Time")  # Add X-axis label
-        plt.ylabel("Amplitude")  # Add Y-axis label
-        plt.title(figname)
-        fig_path = os.path.join(Fig_output_dir, f'4_{St_Names} Full_reconstruction.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        #plt.savefig(subfolder, f'4_{St_Names} Full_reconstruction.png')
-
-        figname = "Residual (Data - Reconstrction)"
-        figno = figno + 1
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        plt.plot(tFracYr_with_NaNs, x_in_with_NaNs - x_in_recons_NaNs, label="residuals")
-        #plot_n(t, x - full_recons_NaNs, ['residuals'])
-        plt.legend()  # Add legend to distinguish the lines
-        plt.xlabel("Time")  # Add X-axis label
-        plt.ylabel("Amplitude")  # Add Y-axis label
-        plt.title(figname)
-        fig_path = os.path.join(Fig_output_dir, f'5_{St_Names} Residuals.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        #plt.savefig(subfolder, f'5_{St_Names} Residuals.png')
-
-
-        maxeig_locl = 16
-
-        
-        # %% Plot eigenvalues
-        figname = f"eigenvalues, max eig={maxeig_locl}"
-        figno = figno + 1
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        plt.semilogy(OutStrucNaNs['LAMBDA'], 'b+-')
-        plt.semilogy(OutStrucNaNs['LAMBDA'][:maxeig_locl], 'ro-')
-        plt.title(figname)
-        fig_path = os.path.join(Fig_output_dir, f'6_{St_Names} Eigenvalues.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        #plt.savefig(subfolder, f'6_{St_Names} Eigenvalues.png')
-
-        figname = f"multiple part recon: Ntime={n_cont_time} Ndata={n_data}, M={M}, L={l}, num local eig={maxeig_locl}"
-        figno = figno + 1
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        # Call plot_n function
-        plt.plot(tFracYr_with_NaNs, x, label="data")
-        plt.plot(tFracYr_with_NaNs, np.sum(RCNaNs[:, 0:2], axis=1), label="Compnnt 1-2")
-        plt.plot(tFracYr_with_NaNs, np.sum(RCNaNs[:, 2:4], axis=1), label="Compnnt 3-4")
-        plt.plot(tFracYr_with_NaNs, np.sum(RCNaNs[:, 4:6], axis=1), label="Compnnt 5-6")
-        plt.plot(tFracYr_with_NaNs, np.sum(RCNaNs[:, 6:maxeig_locl], axis=1), label=f'Compnnt 7-{maxeig_locl}')
-        plt.legend()  # Add legend to distinguish the lines
-        plt.xlabel("Time")  # Add X-axis label
-        plt.ylabel("Amplitude")  # Add Y-axis label
-        plt.title(f"{St_Names} SSA Reconstruction Components")  # Add title
-        fig_path = os.path.join(Fig_output_dir, f'7_{St_Names} Multiple part reconstruction.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        #plt.savefig(subfolder, f'7_{St_Names} Multiple part reconstruction.png')
-
-        rc_maxEigenVal_lcl = np.sum(RCNaNs[:, :maxeig_locl], axis=1) * x_std + x_mean
-        figname = "Reconstructed signals up to Local MAx Eigne Value"
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        figno = figno + 1
-        # Call plot_n function
-        plt.plot(tFracYr_with_NaNs, x_in_with_NaNs, label="data")
-        plt.plot(tFracYr_with_NaNs, rc_maxEigenVal_lcl, label=f'Reconst to {maxeig_locl} Local Eigen value')
-        #plot_n(t, x, rc_maxEigenVal_lcl, ['data', f'Reconst to {maxeig_locl} Local Eigen value'])
-        plt.legend()  # Add legend to distinguish the lines
-        plt.xlabel("Time")  # Add X-axis label
-        plt.ylabel("Amplitude")  # Add Y-axis label
-        plt.title(f"{St_Names} SSA Reconstruction Components")  # Add title
-        fig_path = os.path.join(Fig_output_dir, f'8_{St_Names} Reconstructed signals Local Max Eigen Value.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        #plt.savefig(subfolder, f'8_{St_Names} Reconstructed signals Local Max Eigen Value.png')
-
-        RC_maxEigenVal = rc_maxEigenVal_lcl
-    else:
-        #NaNindx_maxeig = NaNindx[NaNindx < maxeig]  # Indices of NaNs within maxeig
-        #RCNaNs[NaNindx_maxeig, :] = np.nan  # Insert NaNs at specific indices
-        RCNaNs[NaNindx, :] = np.nan
-
-            # %% Plot eigenvalues
-        figname = f"{St_Names} eigenvalues, max eig={maxeig}"
-        figno = figno + 1
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        plt.semilogy(OutStrucNaNs['LAMBDA'], 'b+-')
-        plt.semilogy(OutStrucNaNs['LAMBDA'][:maxeig], 'ro-')
-        plt.title(figname)
-        fig_path = os.path.join(Fig_output_dir, f'6_{St_Names} Eigenvalues.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        #plt.savefig(subfolder, f'6_{St_Names} Eigenvalues.png')
-
-        # %% Signals Reconstructed
-        figname = f"{St_Names} multiple part recon: Ntime={n_cont_time} Ndata={n_data}, M={M}, L={l}, num eig={maxeig}"
-        figno = figno + 1
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        # Call plot_n function
-        plt.plot(
-            tFracYr_with_NaNs, x_in_with_NaNs, label='Data'
-        )
-        plt.plot(
-            tFracYr_with_NaNs, np.sum(RCNaNs[:, 0:maxeig], axis=1)* x_std + x_mean, label='Max Eigen Value Reconstruct'
-        )
-        plt.plot(
-            tFracYr_with_NaNs, np.sum(RCNaNs[:, 0:2], axis=1)* x_std + x_mean, label='Component 1-2'
-        )
-        plt.plot(
-            tFracYr_with_NaNs, np.sum(RCNaNs[:, 2:4], axis=1)* x_std + x_mean, label='Component 3-4'
-        )
-        plt.plot(
-            tFracYr_with_NaNs, np.sum(RCNaNs[:, 4:6], axis=1)* x_std + x_mean, label='Component 5-6'
-        )
-        plt.plot(
-            tFracYr_with_NaNs, np.sum(RCNaNs[:, 6:maxeig], axis=1)* x_std + x_mean, label=f'Component 7-{maxeig}'
-        )
-        plt.close()
-
-        # %% Signals Reconstructed
-        figname = f"{St_Names} 1st part recon: Ntime={n_cont_time}, num eig=1"
-        figno = figno + 1
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        # Call plot_n function
-        plt.plot(
-            tFracYr_with_NaNs, x_in_with_NaNs, label='Data'
-        )
-        plt.plot(
-            tFracYr_with_NaNs, np.sum(RCNaNs[:, 0:1], axis=1)* x_std + x_mean, label='Component 1'
-        )
-        plt.legend()  # Add legend to distinguish the lines
-        plt.xlabel("Time")  # Add X-axis label
-        plt.ylabel("Amplitude")  # Add Y-axis label
-        plt.title(f"{St_Names} SSA Reconstruction 1st Components")  # Add title
-        #plt.grid(True)  # Optional: add a grid for better visualization
-        fig_path = os.path.join(Fig_output_dir, f'7_{St_Names} 1st part reconstruction.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        
-
-                # %% Signals Reconstructed
-        figname = f"{St_Names} 1st part recon: Ntime={n_cont_time}, num eig=2"
-        figno = figno + 1
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        # Call plot_n function
-        plt.plot(
-            tFracYr_with_NaNs, x_in_with_NaNs, label='Data'
-        )
-        plt.plot(
-            tFracYr_with_NaNs, np.sum(RCNaNs[:, 1:2], axis=1)* x_std + x_mean, label='Component 1'
-        )
-        plt.legend()  # Add legend to distinguish the lines
-        plt.xlabel("Time")  # Add X-axis label
-        plt.ylabel("Amplitude")  # Add Y-axis label
-        plt.title(f"{St_Names} SSA Reconstruction 2nd Components")  # Add title
-        #plt.grid(True)  # Optional: add a grid for better visualization
-        fig_path = os.path.join(Fig_output_dir, f'7_{St_Names} 2nd part reconstruction.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        #plt.savefig(subfolder, f'7_{St_Names} Multiple part reconstruction.png')
-
-        # %% MAximum eigen value reconstruction
-        # Compute rc by summing over the first maxeig columns
-        rc_maxEigenVal = np.sum(RCNaNs[:, :maxeig], axis=1) * x_std + x_mean
-        figname = f"{St_Names} Reconstructed signals up to MAx Eigne Value"
-        plt.figure(figname,figsize=(12, 9), dpi=300)
-        figno = figno + 1
-        # Call plot_n function
-        #plot_n(t, x, rc_maxEigenVal, ['data', f'Reconst to {maxeig} Eigen value'])
-        plt.plot(
-            tFracYr_with_NaNs, x_in_with_NaNs, label='Data'
-        )
-        plt.plot(
-            tFracYr_with_NaNs, rc_maxEigenVal, '--',label=f'Reconst to {maxeig} Eigen value'
-        )
-        plt.legend()  # Add legend to distinguish the lines
-        plt.xlabel("Time")  # Add X-axis label
-        plt.ylabel("Amplitude")  # Add Y-axis label
-        plt.title(f"{St_Names} Reconstructed signals Max Eigen Value: {maxeig}")  # Add title
-        fig_path = os.path.join(Fig_output_dir, f'8_{St_Names} Reconstructed signals Max Eigen Value {maxeig}.png')
-        plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-        plt.close()
-
-        #plt.savefig(subfolder, f'8_{St_Names} Reconstructed signals Max Eigen Value {maxeig}.png')
-
-        RC_maxEigenVal = rc_maxEigenVal  # Reconstructed components up to maxeig
-    # %%Lomb Scargle 
-    # Compute FFT
-
-    '''
-    What Does Lomb-Scargle Represent?
-    The Lomb-Scargle Periodogram is a method for estimating the power spectrum of a signal, especially when data points are irregularly spaced in time. It is commonly used in astronomy, geophysics, and signal processing to detect periodic signals in unevenly sampled data.
-
-    Key Concepts
-    Power Spectrum Estimation
-
-    It calculates how much power (variance) in the data is associated with different frequencies.
-    Peaks in the periodogram indicate dominant frequencies (periodic components) in the data.
-    '''
-
-    residual_RC = x - RC_maxEigenVal
-
-    # Assume t and rc_maxEigenVal are your original time and signal arrays
-    rc_mask = ~np.isnan(RC_maxEigenVal)  # Create a mask for valid (non-NaN) values
-    residual_mask = ~np.isnan(residual_RC)  # Create a mask for valid (non-NaN) values
-
-    # Apply mask to remove NaN values from both arrays
-    t_rc_clean = t[rc_mask]
-    t_res_clean = t[residual_mask]
-
-    rc_clean = RC_maxEigenVal[rc_mask]
-    res_clean = residual_RC[residual_mask]
-
-    # from astropy.timeseries import LombScargle
-    # frequency, power = LombScargle(t_clean, rc_clean).autopower(minimum_frequency=0.1, maximum_frequency=0.5,samples_per_peak=10)
-
-
-    #from scipy.signal import lombscargle
-    from astropy.timeseries import LombScargle
-    w = np.linspace(0.01, 0.5, 250)
-    min_freq = 0.1
-    frequency_RC, pgram_powerRC = LombScargle(t_rc_clean, rc_clean, normalization='psd').autopower(minimum_frequency=min_freq, maximum_frequency=100)
-    frequency_Noise, pgram_powerNoise = LombScargle(t_res_clean, res_clean, normalization='psd').autopower(minimum_frequency=min_freq, maximum_frequency=100)
-
-    #pgram_power = lombscargle(t_rc_clean, rc_clean, w, normalize=True)
-
-    #Res_RC_power = lombscargle(t_res_clean, res_clean, w, normalize=True)
-    #power_ratio = np.sum(pgram_power) / (np.sum(pgram_power) + np.sum(Res_RC_power))
-    #If power_ratio is close to 1, the selected components capture most cyclic behavior.
-    #If power_ratio is small, cyclic components are still present in the residual signal.
-
-    #figname = "Lomb Scargle for the reconstructed Signal"
-    #figno = figno + 1
-    plt.figure(figsize=(12, 9), dpi=300)
-    plt.loglog(frequency_RC, pgram_powerRC, 'r',markersize=1, label='cyclics')
-    plt.loglog(frequency_Noise, pgram_powerNoise, 'b.-',markersize=1,label='noise')
-    #plt.title(f"Lomb-Scargle Power Spectrum for {maxeig}\nPower Ratio: {power_ratio:.2f}")
-    plt.xlabel('freq')
-    plt.ylabel('Amp')
-    plt.title(f'{St_Names} Lomb Scargle Amplitude Spectrum')
-    plt.grid()
-    plt.legend()
-    fig_path = os.path.join(Fig_output_dir, f'9_{St_Names} Lomb Scargle Amplitude Spectrum.png')
-    plt.savefig(fig_path, dpi=300, bbox_inches='tight')  # Save the figure with tight layout
-    plt.close()
-    #plt.savefig(subfolder, f'9_{St_Names} Lomb Scargle Amplitude Spectrum.png')
-
-    # %% Saving the data into a file
-
-
-    valid_indices = ~np.isnan(RC_maxEigenVal)  # Mask for valid (non-NaN) values
-    RC_maxEigenVal_filtered = RC_maxEigenVal[valid_indices]
-
-    # Define the output file name and path
-    output_filename = f"{St_Names}_Cyclics.mom"
-    SSA_output_dir = 'SSA_Cyclics'
-    os.makedirs(SSA_output_dir, exist_ok=True)  # ✅ Only the directory
-    output_path = os.path.join(SSA_output_dir, output_filename)
-
-    # Open a file and write the data
-    with open(output_path, "w", newline="") as file:
-        for t, r in zip(tmjd, RC_maxEigenVal_filtered):
-            file.write(f"{t} {r:.6f}\n")
-    # Save the data into a file
-            
-            
-    sampling_period = "# sampling period 1.0"
-    output_filename_mom = f"{St_Names}_{Comp}.mom"
-    output_dir_mom = os.path.join(directory, "..", "4th_Velocity_HectorP_SSACycleRmved")
-    subfolder_mom = os.path.join(output_dir_mom,"obs_files")
-    os.makedirs(subfolder_mom, exist_ok=True)  # Create the subfolder if it doesn't exist 
-    with open(os.path.join(subfolder_mom,output_filename_mom), "w", newline="") as file_mom:
-            # Write the sampling period comment
-            file_mom.write(sampling_period + "\n")
-            # Write the stored comment lines
+    print("Leaving SSABasicCleanUCLAtoeplitz")
+    return {"RC": RC, "LAMBDA": LAMBDA, "RHO": RHO, "num_nans": num_nans}
+
+
+# =============================================================================
+# Main
+# =============================================================================
+def main():
+    args = parse_args()
+    args = resolve_plots(args)
+
+    input_dir  = args.input
+    output_ts  = args.output_ts
+    output_fig = args.output_fig
+    M          = args.embedding
+    maxeig     = args.MaxEig
+
+    os.makedirs(output_ts,  exist_ok=True)
+    os.makedirs(output_fig, exist_ok=True)
+
+    # Collect files to process
+    file_names = [f for f in os.listdir(input_dir)
+                  if os.path.isfile(os.path.join(input_dir, f))]
+
+    if args.stations:
+        file_names = [f for f in file_names
+                      if any(s in f for s in args.stations)]
+
+    if args.dry_run:
+        print("Stations that would be processed:")
+        for f in file_names:
+            print(f"  {f}")
+        return
+
+    comp_groups = parse_components(args.components, maxeig)
+
+    # ------------------------------------------------------------------
+    for fldrs in file_names:
+        St_Names = fldrs[:10]
+        Compnnt  = fldrs[5]
+        Comp = {"0": "E", "1": "N", "2": "U"}.get(Compnnt, "?")
+
+        print(f"\n{'='*60}")
+        print(f"Processing: {St_Names}  component: {Comp}")
+
+        # Per-station figure folder
+        fig_dir = os.path.join(output_fig, St_Names)
+        os.makedirs(fig_dir, exist_ok=True)
+
+        # ---- Load data ---------------------------------------------------
+        filename_dir = os.path.join(input_dir, f"{St_Names}.dat")
+        comments, data_lines = [], []
+        with open(filename_dir) as fh:
+            for line in fh:
+                if line.startswith("#"):
+                    comments.append(line.strip())
+                else:
+                    data_lines.append(line)
+
+        full_data = np.loadtxt(data_lines)
+        n_data    = full_data.shape[0]
+
+        tmjd   = full_data[:, 0]   # Modified Julian Date
+        tyfrac = full_data[:, 1]   # Fractional year
+        obser  = full_data[:, 2]   # Raw observation (mm)
+        x_in   = full_data[:, 3]   # Detrended, jumps removed (mm)
+
+        dataindx = tmjd - tmjd[0] + 1
+
+        x_std  = np.std(x_in, ddof=1)
+        x_mean = np.mean(x_in)
+        x_norm = (x_in - x_mean) / x_std
+
+        # Continuous time vector
+        t = np.arange(tmjd[0], tmjd[-1] + 1) - tmjd[0] + 1
+        N = len(t)
+
+        if N == n_data:
+            print("No gaps in input data")
+        else:
+            print(f"Gaps: {N - n_data} missing days")
+
+        if n_data < 2 * M:
+            print("Time series shorter than 2*M — skipping.")
+            continue
+
+        # Build gappy arrays
+        idx = dataindx.astype(int) - 1
+
+        x_in_NaN   = np.full(N, np.nan)
+        x_in_NaN[idx] = x_in
+
+        x_norm_NaN = np.full(N, np.nan)
+        x_norm_NaN[idx] = x_norm
+
+        tFrac_NaN  = np.full(N, np.nan)
+        tFrac_NaN[idx] = tyfrac
+
+        X = np.where(np.isnan(x_norm_NaN), 0.0, x_norm_NaN)  # NaNs → 0
+
+        NaNindx  = np.where(np.isnan(x_norm_NaN))[0]
+        num_nans = len(NaNindx)
+        print(f"Data pts: {n_data}, continuous pts: {N}, "
+              f"gaps: {num_nans} ({100*num_nans/N:.1f} %)")
+
+        # ---- Trajectory matrix -------------------------------------------
+        l        = N - M + 1
+        rowind   = np.arange(l)[:, None]
+        colind   = np.arange(1, M + 1)
+        trajmat  = x_norm_NaN[colind + rowind - 1]
+
+        # ---- Toeplitz covariance ------------------------------------------
+        Cloop = np.zeros(M)
+        for J in range(M):
+            nterms = N - J
+            products = X[:nterms] * X[J:J + nterms]
+            nonzero  = products[products != 0]
+            Cloop[J] = nonzero.mean() if len(nonzero) else 0.0
+
+        Ctoep = toeplitz(Cloop)
+
+        # ---- Plot: gappy input -------------------------------------------
+        if args.plot_gappy:
+            fig, ax = plt.subplots(figsize=(12, 4))
+            ax.plot(tFrac_NaN, x_in_NaN, "bo-", ms=2, lw=0.3)
+            ax.set_xlabel("Time (fractional year)")
+            ax.set_ylabel("Position (mm)")
+            ax.set_title(f"{St_Names} — gappy input (detrended, jumps removed)")
+            savefig(fig, os.path.join(fig_dir, "01_gappy_input.png"))
+
+        # ---- Plot: Toeplitz ----------------------------------------------
+        if args.plot_toeplitz:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+            axes[0].plot(Cloop, "b-")
+            axes[0].set_xlabel("Lag (days)")
+            axes[0].set_ylabel("Correlation")
+            axes[0].set_title(f"{St_Names} — Toeplitz diagonal")
+            im = axes[1].imshow(Ctoep, aspect="auto", cmap="viridis")
+            fig.colorbar(im, ax=axes[1], label="Correlation")
+            axes[1].set_title(f"{St_Names} — Toeplitz matrix  (M={M})")
+            savefig(fig, os.path.join(fig_dir, "02_toeplitz.png"))
+
+        # ---- Run SSA -----------------------------------------------------
+        toep_arg = Ctoep if args.toeplitz else None
+        out = SSABasicCleanUCLAtoeplitz(trajmat, toep=toep_arg, maxieg=maxeig)
+        if out is None:
+            print("SSA failed — skipping station.")
+            continue
+
+        RC = out["RC"]
+        LAMBDA = out["LAMBDA"]
+
+        # Re-insert NaNs at gap positions
+        RCNaN = RC.copy()
+        RCNaN[NaNindx, :] = np.nan
+
+        # Reconstructed signal (sum of first maxeig RCs), back in mm
+        RC_sum     = np.sum(RCNaN[:, :maxeig], axis=1)
+        RC_sum_mm  = RC_sum * x_std + x_mean   # unnormalised
+
+        # Residual (mm)
+        residual_mm = x_in_NaN - RC_sum_mm
+
+        # ---- Plot: eigenvalue spectrum -----------------------------------
+        if args.plot_eigvalue:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.semilogy(LAMBDA, "b+-", label="all eigenvalues")
+            ax.semilogy(np.arange(maxeig), LAMBDA[:maxeig], "ro-",
+                        label=f"selected (1–{maxeig})")
+            ax.set_xlabel("Index")
+            ax.set_ylabel("Eigenvalue")
+            ax.set_title(f"{St_Names} — eigenvalue spectrum")
+            ax.legend()
+            savefig(fig, os.path.join(fig_dir, "03_eigenvalues.png"))
+
+        # ---- Plot: reconstruction vs data --------------------------------
+        if args.plot_reconstruct:
+            fig, ax = plt.subplots(figsize=(12, 5))
+            ax.plot(tFrac_NaN, x_in_NaN,  lw=0.8, label="data")
+            ax.plot(tFrac_NaN, RC_sum_mm, "--", lw=1.2,
+                    label=f"reconstruction (RC 1–{maxeig})")
+            ax.set_xlabel("Time (fractional year)")
+            ax.set_ylabel("Position (mm)")
+            ax.set_title(f"{St_Names} — reconstruction vs data")
+            ax.legend()
+            savefig(fig, os.path.join(fig_dir, "04_reconstruction.png"))
+
+        # ---- Plot: multi-group panel -------------------------------------
+        if args.plot_reconstruct and comp_groups:
+            fig, ax = plt.subplots(figsize=(12, 5))
+            ax.plot(tFrac_NaN, x_norm_NaN, lw=0.6, label="data (norm.)")
+            for (a, b, label) in comp_groups:
+                ax.plot(tFrac_NaN,
+                        np.sum(RCNaN[:, a:b], axis=1),
+                        lw=1.0, label=label)
+            ax.set_xlabel("Time (fractional year)")
+            ax.set_ylabel("Normalised amplitude")
+            ax.set_title(f"{St_Names} — RC groups  (M={M}, MaxEig={maxeig})")
+            ax.legend()
+            savefig(fig, os.path.join(fig_dir, "05_rc_groups.png"))
+
+        # ---- Plot: individual RC components ------------------------------
+        if args.plot_individuals:
+            for k in range(min(maxeig, RC.shape[1])):
+                fig, ax = plt.subplots(figsize=(12, 3))
+                ax.plot(tFrac_NaN, RCNaN[:, k] * x_std + x_mean,
+                        lw=0.8, color="steelblue")
+                ax.set_xlabel("Time (fractional year)")
+                ax.set_ylabel("Position (mm)")
+                ax.set_title(f"{St_Names} — RC {k+1}")
+                savefig(fig, os.path.join(fig_dir,
+                        f"06_rc_{k+1:02d}.png"))
+
+        # ---- Plot: residuals ---------------------------------------------
+        if args.plot_residuals:
+            fig, ax = plt.subplots(figsize=(12, 4))
+            ax.plot(tFrac_NaN, residual_mm, lw=0.6, color="gray")
+            ax.axhline(0, color="k", lw=0.5, ls="--")
+            ax.set_xlabel("Time (fractional year)")
+            ax.set_ylabel("Residual (mm)")
+            ax.set_title(f"{St_Names} — residuals (data − reconstruction)")
+            savefig(fig, os.path.join(fig_dir, "07_residuals.png"))
+
+        # ---- Plot: Lomb-Scargle PSD --------------------------------------
+        if args.plot_lomb:
+            freq_rc,  psd_rc  = compute_psd_LS(RC_sum_mm,
+                                                fmin_cpy=args.min_freq,
+                                                fmax_cpy=args.max_freq)
+            freq_res, psd_res = compute_psd_LS(residual_mm,
+                                                fmin_cpy=args.min_freq,
+                                                fmax_cpy=args.max_freq)
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.loglog(freq_rc,  psd_rc,  "r",   lw=0.8, label="cyclics (RC sum)")
+            ax.loglog(freq_res, psd_res, "b.-", ms=1,   label="residuals / noise")
+            ax.set_xlabel("Frequency (cycles / year)")
+            ax.set_ylabel("PSD")
+            ax.set_title(f"{St_Names} — Lomb-Scargle PSD  "
+                         f"[{args.min_freq}–{args.max_freq} cpy]")
+            ax.legend()
+            ax.grid(True, which="both", ls=":")
+            savefig(fig, os.path.join(fig_dir, "08_lomb_scargle.png"))
+
+        # ---- Save SSA cyclic time series ---------------------------------
+        os.makedirs(output_ts, exist_ok=True)
+        valid = ~np.isnan(RC_sum_mm)
+        out_ts_path = os.path.join(output_ts, f"{St_Names}_Cyclics.mom")
+        with open(out_ts_path, "w", newline="") as fh:
+            for ti, ri in zip(tmjd, RC_sum_mm[valid]):
+                fh.write(f"{ti} {ri:.6f}\n")
+
+        # ---- Save residual .mom for Hector -------------------------------
+        directory = os.getcwd()
+        output_dir_mom = os.path.join(directory, "..",
+                                      "4th_Velocity_HectorP_SSACycleRmved")
+        subfolder_mom = os.path.join(output_dir_mom, "obs_files")
+        os.makedirs(subfolder_mom, exist_ok=True)
+
+        sampling_period = "# sampling period 1.0"
+        out_mom_path = os.path.join(subfolder_mom, f"{St_Names}_{Comp}.mom")
+        RC_filt = RC_sum_mm[valid]
+        with open(out_mom_path, "w", newline="") as fh:
+            fh.write(sampling_period + "\n")
             if comments and comments[0].startswith("# exp"):
                 comments[0] = comments[0].replace("# exp", "# log", 1)
             for comment in comments:
-                file_mom.write(comment + "\n")
-            for ti, obs in zip(tmjd, obser-RC_maxEigenVal_filtered):
-                file_mom.write(f"{ti} {obs:.6f}\n")  # Format r to 6 decimal places
+                fh.write(comment + "\n")
+            for ti, oi, ri in zip(tmjd, obser, RC_filt):
+                fh.write(f"{ti} {oi - ri:.6f}\n")
+
+        print(f"  -> TS saved : {out_ts_path}")
+        print(f"  -> MOM saved: {out_mom_path}")
+        print(f"  -> Figures  : {fig_dir}/")
+
+    print("\nDone.")
+
+
+if __name__ == "__main__":
+    main()
