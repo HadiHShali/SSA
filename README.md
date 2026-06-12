@@ -93,9 +93,11 @@ I'm using windows 11 CMD here.
 
 ### Run the Example (in Windows CMD)
 ### 1- your own data without trend and jumps
-Read the README.txt file inside the SSA_CERI_UofM folder. 
-Put your data inside the ToSSA_Input\input_TS 
-Run the code as instructed in the REAME.txt file. 
+-Read the README.txt file inside the SSA_CERI_UofM folder. 
+
+-Put your data inside the ToSSA_Input\input_TS.
+ 
+-Run the code as instructed in the REAME.txt file. 
 
 ### 2- Nevada Geodetic Labrotary data (use Hector package to detrend and remove the jumps)
 1- Download the data from Nevada Geodetic Lab (tenv3 files):
