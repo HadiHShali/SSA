@@ -1,7 +1,4 @@
-# Singular Spectrum Analysis (SSA)
-This repository is dedicated to the spectrum analysis of time series data containing gaps. It includes various sections designed to facilitate understanding and application of the methods and tools provided
-<img width="3600" height="3000" alt="GPS Station LCHS and River Gauge MS116" src="https://github.com/user-attachments/assets/443cc1bf-cbcf-4fe8-99dd-1004966ed809" />
-
+# Singular Spectrum Analysis (SSA) for GNSS Time Series
 
 > **A Python implementation of Singular Spectrum Analysis for decomposing GNSS time series into their underlying frequency components, with native support for missing data (gaps).**
 
@@ -29,7 +26,7 @@ Real GNSS time series almost always contain gaps due to equipment failures, weat
 
 ---
 
-##  Workflow
+## Workflow
 
 ```
 1- Raw GNSS Time Series (with gaps)
@@ -47,7 +44,7 @@ Real GNSS time series almost always contain gaps due to equipment failures, weat
 
 ---
 
-##  Repository Structure
+## Repository Structure
 
 ```
 SSA/
@@ -62,22 +59,20 @@ SSA/
 │   ├── original/                  #   - Schoellhamer's original code
 │   └── modified/                  #   - Our modifications for GNSS workflows
 │
-├── 4_SSA_CERI_UofM/               # Main Python pipeline ⭐
+├── 4_Main_SSA_CERI/               # Main Python pipeline 
 │   ├── ssa_pipeline.py            #   - Core SSA implementation
-│   ├── To_SSA/                    # Input folder to make the required timeseries or ...
-|   |  ├── Input_TimeSeries        #...put your own timeseries (make sure to adjust your own data as instructed) here. 
-│   ├── MatlabVersion/ 
-│   ├── SSA_Cyclics                # OutPut folder. 
-│   │  ├── OutPut_TimeSeries       # Estimated Cyclic signals
-|   |  ├── Figures                 # Corresponding Figures per station
-│   └── README.md                  # Detailed usage guide
+│   ├── example/                   #   - Worked example with sample data
+│   │   ├── example_input.csv
+│   │   ├── run_example.py
+│   │   └── example_output/
+│   └── README.md                  #   - Detailed usage guide
 │
 └── README.md                      # This file
 ```
 
 ---
 
-##  Quick Start
+## Quick Start
 
 ### Prerequisites
 I'm using windows 11 CMD here. 
@@ -96,11 +91,11 @@ I'm using windows 11 CMD here.
 
  3.2. Activate
     On Linux / macOS:
-        source SSA_CERI/bin/activate
+        source vEnv_SSA/bin/activate
     On Windows (Command Prompt):
         **vEnv_SSA\Scripts\activate.bat** (to deactivate, just simply run: deactivate)
     On Windows (PowerShell):
-        SSA_CERI\Scripts\Activate.ps1
+        vEnv_SSA\Scripts\Activate.ps1
 
  4. Install required packages inside the environment
         python.exe -m pip install --upgrade pip
@@ -116,5 +111,6 @@ It dowloads the .tenv3 files and saves them in tenv3 folder
 2- Read the tenv3 files and make directories for each components withing the Stns_Dir
 python tenv3_reader_compDir.py
 
-3- while the virtual environmet is activated (if not go to your SSA directory and activate it by running the: vEnv_SSA\Scripts\activate.bat)
+3- While the virtual environmet is activated (if not go to your SSA directory and activate it by running the: vEnv_SSA\Scripts\activate.bat), run the following code:
 you should see something like this: (vEnv_SSA) C:\Users\GeodesyLab\OneDrive - The University of Memphis\Desktop\SSA>
+python 
