@@ -110,5 +110,3 @@ It dowloads the .tenv3 files and saves them in tenv3 folder
 python tenv3_reader_compDir.py
 
 3- While the virtual environmet is activated:
-
-### 1- your own raw data (use Hector package to detrend and remove the jumps)
