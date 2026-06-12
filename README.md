@@ -64,7 +64,6 @@ SSA/
 │   ├── ToSSA_Input/                   				#   - Worked example with sample data
 │   │   ├── input_TS/
 │   │   ├── NevGeoLab/
-│   │   └── Hector/
 │   ├── SSA_OutPut/
 │   │   └── output_Figures/
 │   │   └── output_TS/
