@@ -6,6 +6,24 @@ saves SSA cyclic outputs and Hector-format residual .mom files, and optionally
 generates diagnostic figures.
 
 
+
+INPUT FILE FORMAT
+-----------------
+Plain-text .dat files; comment lines start with #; data columns:
+
+    MJD   FractionalYear   Observation_mm   Detrended_Dejump_mm
+for example input file should be like:
+# offset 58618
+# offset 59248
+ 51735.0	2000.523224	-0.680980	-0.680980
+ 51736.0	2000.525956	-4.596116	-4.596910
+ 51737.0	2000.528689	-3.897238	-3.898825
+
+File name pattern: {4 letters station name}_{East:0/North:1/Up:2}_SSA.dat  (10-character station name).
+Character at index 5 encodes the component: 0=E, 1=N, 2=U.
+for example: CVMS_0_SSA.dat (CVMS: station name, 0: East component, SSA: input for SSA)
+
+
 REQUIREMENTS
 ------------
     numpy  scipy  matplotlib  astropy  pandas
@@ -40,7 +58,7 @@ Processing:
   --MaxEig         Eigenvalues used in reconstruction     (default: 16)
   --components     RC groupings for multi-panel plot      (default: "1-2,3-4,5-6")
   --toeplitz       Use Toeplitz covariance matrix         (flag, off by default)
-  --stations       Process only listed station names      (default: all)
+  --stations       Process only listed station names      (CVMS LCHS for example. default: all)
   --dry-run        Print stations to process then exit    (flag)
 
 Lomb-Scargle PSD:
@@ -88,15 +106,6 @@ OUTPUT STRUCTURE
             +-- 07_residuals.png
             +-- 08_lomb_scargle.png
 
-    ../4th_Velocity_HectorP_SSACycleRmved/obs_files/
-        +-- STATIONNAME_E.mom / _N.mom / _U.mom   (Hector-format residuals)
 
 
-INPUT FILE FORMAT
------------------
-Plain-text .dat files; comment lines start with #; data columns:
 
-    MJD   FractionalYear   Observation_mm   Detrended_mm
-
-File name pattern: STATIONNAME.dat  (10-character station name).
-Character at index 5 encodes the component: 0=E, 1=N, 2=U.

@@ -499,26 +499,26 @@ def main():
                 fh.write(f"{ti} {ri:.6f}\n")
 
         # ---- Save residual .mom for Hector -------------------------------
-        directory = os.getcwd()
-        output_dir_mom = os.path.join(directory, "..",
-                                      "4th_Velocity_HectorP_SSACycleRmved")
-        subfolder_mom = os.path.join(output_dir_mom, "obs_files")
-        os.makedirs(subfolder_mom, exist_ok=True)
+        # directory = os.getcwd()
+        # output_dir_mom = os.path.join(directory, "..",
+                                      # "4th_Velocity_HectorP_SSACycleRmved")
+        # subfolder_mom = os.path.join(output_dir_mom, "obs_files")
+        # os.makedirs(subfolder_mom, exist_ok=True)
 
-        sampling_period = "# sampling period 1.0"
-        out_mom_path = os.path.join(subfolder_mom, f"{St_Names}_{Comp}.mom")
-        RC_filt = RC_sum_mm[valid]
-        with open(out_mom_path, "w", newline="") as fh:
-            fh.write(sampling_period + "\n")
-            if comments and comments[0].startswith("# exp"):
-                comments[0] = comments[0].replace("# exp", "# log", 1)
-            for comment in comments:
-                fh.write(comment + "\n")
-            for ti, oi, ri in zip(tmjd, obser, RC_filt):
-                fh.write(f"{ti} {oi - ri:.6f}\n")
+        # sampling_period = "# sampling period 1.0"
+        # out_mom_path = os.path.join(subfolder_mom, f"{St_Names}_{Comp}.mom")
+        # RC_filt = RC_sum_mm[valid]
+        # with open(out_mom_path, "w", newline="") as fh:
+            # fh.write(sampling_period + "\n")
+            # if comments and comments[0].startswith("# exp"):
+                # comments[0] = comments[0].replace("# exp", "# log", 1)
+            # for comment in comments:
+                # fh.write(comment + "\n")
+            # for ti, oi, ri in zip(tmjd, obser, RC_filt):
+                # fh.write(f"{ti} {oi - ri:.6f}\n")
 
         print(f"  -> TS saved : {out_ts_path}")
-        print(f"  -> MOM saved: {out_mom_path}")
+        #print(f"  -> MOM saved: {out_mom_path}")
         print(f"  -> Figures  : {fig_dir}/")
 
     print("\nDone.")

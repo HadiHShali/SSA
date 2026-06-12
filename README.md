@@ -49,25 +49,28 @@ Real GNSS time series almost always contain gaps due to equipment failures, weat
 ```
 SSA/
 │
-├── 1_Papers/                      # Reference papers (the theory)
-│   └── Schoellhamer_2001.pdf      #   - Base method for gap-tolerant SSA
+├── 1_Papers/                      				# Reference papers (the theory)
+│   └── Schoellhamer_2001.pdf      				#   - Base method for gap-tolerant SSA
 │
-├── 2_UCLA_Code/                   # Reference MATLAB implementation
-│   └── ...                        #   - Standard SSA tutorial (no gap support)
+├── 2_UCLA_Code/                   				# Reference MATLAB implementation
+│   └── ...                        				#   - Standard SSA tutorial (no gap support)
 │
-├── 3_Schoellhamer_Code/           # Adapted MATLAB implementation
-│   ├── original/                  #   - Schoellhamer's original code
-│   └── modified/                  #   - Our modifications for GNSS workflows
+├── 3_Schoellhamer_Code/           				# Adapted MATLAB implementation
+│   ├── original/                  				#   - Schoellhamer's original code
+│   └── modified/                  				#   - Our modifications for GNSS workflows
 │
-├── 4_Main_SSA_CERI/               # Main Python pipeline 
-│   ├── ssa_pipeline.py            #   - Core SSA implementation
-│   ├── example/                   #   - Worked example with sample data
-│   │   ├── example_input.csv
-│   │   ├── run_example.py
-│   │   └── example_output/
-│   └── README.md                  #   - Detailed usage guide
+├── 4_Main_SSA_CERI/               				# Main Python pipeline 
+│   ├── SSA_Schoellhamer_UofM_V3.py             #   - Core SSA implementation
+│   ├── ToSSA_Input/                   				#   - Worked example with sample data
+│   │   ├── input_TS/
+│   │   ├── NevGeoLab/
+│   │   └── Hector/
+│   ├── SSA_OutPut/
+│   │   └── output_Figures/
+│   │   └── output_TS/
+│   └── README.txt                  				#   - Detailed usage guide
 │
-└── README.md                      # This file
+└── README.md                      				# This file
 ```
 
 ---
@@ -85,32 +88,28 @@ I'm using windows 11 CMD here.
  2.2. Go to the folder:
         cd SSA
 
- 3. Make and Activate the environment
- 3.1. Make the environment called vEnv_SSA: 
-        python3 -m venv vEnv_SSA
-
- 3.2. Activate
-    On Linux / macOS:
-        source vEnv_SSA/bin/activate
-    On Windows (Command Prompt):
-        **vEnv_SSA\Scripts\activate.bat** (to deactivate, just simply run: deactivate)
-    On Windows (PowerShell):
-        vEnv_SSA\Scripts\Activate.ps1
-
- 4. Install required packages inside the environment
+ 3. Install required packages inside the environment
         python.exe -m pip install --upgrade pip
         pip install numpy pandas requests scipy matplotlib hectorp
 
 ### Run the Example (in Windows CMD)
+### 1- your own data without trend and jumps
+Read the README.txt file inside the SSA_CERI_UofM folder. 
+Put your data inside the ToSSA_Input\input_TS 
+Run the code as instructed in the REAME.txt file. 
 
+### 2- Nevada Geodetic Labrotary data (use Hector package to detrend and remove the jumps)
 1- Download the data from Nevada Geodetic Lab (tenv3 files):
 (the following peice of code give you all the stations in North American plate loctaed in 35<lat<36 and -90<lon<-89 and have minimum 5 years of data)
+
 python download_gnss_stations.py --ref NA --min-lat 35.0 --max-lat 36.0 --min-lon -90 --max-lon -89 --min-duration 5
+
 It dowloads the .tenv3 files and saves them in tenv3 folder
 
 2- Read the tenv3 files and make directories for each components withing the Stns_Dir
+
 python tenv3_reader_compDir.py
 
-3- While the virtual environmet is activated (if not go to your SSA directory and activate it by running the: vEnv_SSA\Scripts\activate.bat), run the following code:
-you should see something like this: (vEnv_SSA) C:\Users\GeodesyLab\OneDrive - The University of Memphis\Desktop\SSA>
-python 
+3- While the virtual environmet is activated:
+
+### 1- your own raw data (use Hector package to detrend and remove the jumps)
